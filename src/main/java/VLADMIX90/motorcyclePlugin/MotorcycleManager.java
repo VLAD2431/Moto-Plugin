@@ -59,6 +59,11 @@ public final class MotorcycleManager {
     /** Игроки, которых плагин сам снимает с мотоцикла (SHIFT, уборка, выход). */
     private final java.util.Set<UUID> programmaticDismounts = new HashSet<>();
 
+    /** Минимальный интервал между попытками вернуть седока в седло (в тиках). */
+    private static final long RESEAT_COOLDOWN_TICKS = 10L;
+    /** Последний тик принудительной посадки для каждого игрока. */
+    private final Map<UUID, Long> lastReseatTick = new HashMap<>();
+
     private int tickTask = -1;
     private long ticksElapsed;
 
@@ -306,6 +311,7 @@ public final class MotorcycleManager {
         if (bike == null) return;
 
         playerToBike.remove(player.getUniqueId());
+        lastReseatTick.remove(player.getUniqueId());
         restoreRiderState(player);
         bike.setSpeed(0);
         bike.setJumping(false);
@@ -319,6 +325,7 @@ public final class MotorcycleManager {
             return;
         }
         playerToBike.remove(player.getUniqueId());
+        lastReseatTick.remove(player.getUniqueId());
         ejectRider(player);
         restoreRiderState(player);
         bike.setSpeed(0);
@@ -547,6 +554,28 @@ public final class MotorcycleManager {
     }
 
     /**
+     * Лёгкая защита от рассинхрона: если клиент «слез» с невидимого сиденья,
+     * но привязка игрок -> мотоцикл ещё жива, возвращаем его в седло.
+     * Игрока мы при этом НЕ телепортируем — Bukkit сам отправит пассажиру
+     * позицию родительской сущности, поэтому камера не дёргается.
+     * Повторная посадка выполняется максимум раз в {@value #RESEAT_COOLDOWN_TICKS}
+     * тиков на игрока, чтобы при проблемных условиях не было спам-цикла
+     * «посадка-высадка», который и вызывает лаги.
+     */
+    private void ensureSeated(Motorcycle bike, Player player) {
+        for (Entity passenger : bike.seat().getPassengers()) {
+            if (passenger.equals(player)) return;
+        }
+
+        Long last = lastReseatTick.get(player.getUniqueId());
+        long now = ticksElapsed;
+        if (last != null && now - last < RESEAT_COOLDOWN_TICKS) return;
+        lastReseatTick.put(player.getUniqueId(), now);
+
+        addRiderToSeat(bike, player);
+    }
+
+    /**
      * Посадка с принудительным выталкиванием предыдущего седока.
      * Если на сиденье «завис» игрок, который вышел из игры или был телепортирован,
      * обычный addPassenger() вернул бы false и мотоцикл не сел бы.
@@ -576,13 +605,12 @@ public final class MotorcycleManager {
             return;
         }
 
-        // Принудительно держим игрока в седле каждый тик. Без этого клиент
-        // при первом же нажатии WASD сам «слезает» с невидимого стоеча
-        // (для клиента это пустая сущность), и получается рассинхрон:
-        // модель уезжает вперёд, а персонаж стоит на месте.
-        if (!bike.seat().getPassengers().contains(player)) {
-            addRiderToSeat(bike, player);
-        }
+        // Держим игрока в седле, но НЕ телепортируем его каждый тик —
+        // пока игрок числится пассажиром сиденья, клиент сам синхронизирует
+        // позицию по entity-пассажиру, поэтому камера не дёргается.
+        // Повторная посадка происходит только при реальном рассинхроне
+        // (клиент «слезал» с невидимого стоеча), а не каждый тик.
+        ensureSeated(bike, player);
 
         player.setFallDistance(0);
 
