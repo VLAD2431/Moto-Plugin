@@ -7,6 +7,7 @@ import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityDismountEvent;
+import org.bukkit.entity.Player;
 import org.bukkit.event.player.PlayerInteractAtEntityEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
@@ -66,9 +67,17 @@ public final class MotorcycleListener implements Listener {
         }
     }
 
-    @EventHandler
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onDismount(EntityDismountEvent event) {
-        plugin.motorcycles().onDismount(event);
+        Motorcycle bike = plugin.motorcycles().getByEntity(event.getDismounted());
+        if (bike == null) return;
+
+        // Игрок не может «слезть» с мотоцикла сам: только по SHIFT или при
+        // уборке/снятии плагина. Без этого клиент на каждом ходу сбрасывает
+        // пассажира с невидимого стоеча и мотоцикл стоит, а модель уезжает.
+        if (event.getEntity() instanceof Player player && !plugin.motorcycles().isProgrammaticDismount(player)) {
+            event.setCancelled(true);
+        }
     }
 
     @EventHandler

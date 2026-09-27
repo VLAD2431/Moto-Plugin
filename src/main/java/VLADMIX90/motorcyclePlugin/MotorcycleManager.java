@@ -56,6 +56,8 @@ public final class MotorcycleManager {
 
     private final Map<UUID, ArmorStand> loadedSeats = new HashMap<>();
     private final Map<UUID, ItemDisplay> loadedVisuals = new HashMap<>();
+    /** Игроки, которых плагин сам снимает с мотоцикла (SHIFT, уборка, выход). */
+    private final java.util.Set<UUID> programmaticDismounts = new HashSet<>();
 
     private int tickTask = -1;
     private long ticksElapsed;
@@ -144,7 +146,7 @@ public final class MotorcycleManager {
         for (UUID playerId : new HashSet<>(playerToBike.keySet())) {
             Player player = Bukkit.getPlayer(playerId);
             if (player != null) {
-                player.leaveVehicle();
+                ejectRider(player);
                 restoreRiderState(player);
             }
         }
@@ -271,7 +273,7 @@ public final class MotorcycleManager {
         // Сиденье остаётся на ховер-высоте (иначе его корпус уходит в блоки,
         // проверка коллизий считает это стеной, и мотоцикл не едет).
         // Визуальную модель опускаем к ногам игрока в syncVisual().
-        boolean mounted = motorcycle.seat().addPassenger(player);
+        boolean mounted = addRiderToSeat(motorcycle, player);
         if (!mounted) {
             send(player, "messages.mount-failed");
             return;
@@ -281,6 +283,21 @@ public final class MotorcycleManager {
         motorcycle.setRiding(true);
         player.setFallDistance(0);
         motorcycle.setSpeed(0);
+    }
+
+    /** Слушатель спрашивает: это плагин сам снимает игрока, или клиент «слез» сам? */
+    public boolean isProgrammaticDismount(Player player) {
+        return programmaticDismounts.contains(player.getUniqueId());
+    }
+
+    /** Выполняет съезд с мотоциклом так, чтобы слушатель не отменил это действие. */
+    private void ejectRider(Player player) {
+        programmaticDismounts.add(player.getUniqueId());
+        try {
+            player.leaveVehicle();
+        } finally {
+            programmaticDismounts.remove(player.getUniqueId());
+        }
     }
 
     public void onDismount(EntityDismountEvent event) {
@@ -302,7 +319,7 @@ public final class MotorcycleManager {
             return;
         }
         playerToBike.remove(player.getUniqueId());
-        player.leaveVehicle();
+        ejectRider(player);
         restoreRiderState(player);
         bike.setSpeed(0);
         bike.setJumping(false);
@@ -512,7 +529,7 @@ public final class MotorcycleManager {
             } else {
                 if (rider != null) {
                     playerToBike.remove(rider.getUniqueId());
-                    rider.leaveVehicle();
+                    ejectRider(rider);
                     restoreRiderState(rider);
                 }
                 bike.setSpeed(moveTowardZero(bike.speed(), rollingPerTick()));
@@ -529,6 +546,24 @@ public final class MotorcycleManager {
         return null;
     }
 
+    /**
+     * Посадка с принудительным выталкиванием предыдущего седока.
+     * Если на сиденье «завис» игрок, который вышел из игры или был телепортирован,
+     * обычный addPassenger() вернул бы false и мотоцикл не сел бы.
+     */
+    private boolean addRiderToSeat(Motorcycle bike, Player player) {
+        ArmorStand seat = bike.seat();
+        for (Entity old : new ArrayList<>(seat.getPassengers())) {
+            if (old.getUniqueId().equals(player.getUniqueId())) continue;
+            seat.removePassenger(old);
+            if (old instanceof Player oldPlayer) {
+                playerToBike.remove(oldPlayer.getUniqueId());
+                restoreRiderState(oldPlayer);
+            }
+        }
+        return seat.addPassenger(player);
+    }
+
     private void drive(Motorcycle bike, Player player) {
         if (bike.storageInProgress()) {
             setZeroVelocity(bike);
@@ -541,11 +576,12 @@ public final class MotorcycleManager {
             return;
         }
 
+        // Принудительно держим игрока в седле каждый тик. Без этого клиент
+        // при первом же нажатии WASD сам «слезает» с невидимого стоеча
+        // (для клиента это пустая сущность), и получается рассинхрон:
+        // модель уезжает вперёд, а персонаж стоит на месте.
         if (!bike.seat().getPassengers().contains(player)) {
-            if (!bike.seat().addPassenger(player)) {
-                send(player, "messages.mount-failed");
-                return;
-            }
+            addRiderToSeat(bike, player);
         }
 
         player.setFallDistance(0);
@@ -597,7 +633,7 @@ public final class MotorcycleManager {
         exit.setYaw(player.getYaw());
         exit.setPitch(player.getPitch());
 
-        player.leaveVehicle();
+        ejectRider(player);
         playerToBike.remove(player.getUniqueId());
         restoreRiderState(player);
         player.teleport(exit);
@@ -1131,7 +1167,7 @@ public final class MotorcycleManager {
         for (Entity passenger : new ArrayList<>(bike.seat().getPassengers())) {
             if (passenger instanceof Player player) {
                 playerToBike.remove(player.getUniqueId());
-                player.leaveVehicle();
+                ejectRider(player);
                 restoreRiderState(player);
             }
         }
