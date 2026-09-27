@@ -124,10 +124,15 @@ public final class MotorcycleManager {
         Motorcycle bike = new Motorcycle(id, seat, visual, Math.min(capacity, Math.max(0, battery)), heading);
         motorcycles.put(id, bike);
         // Если сиденье пережило рестарт/выгрузку с пассажиром на борту —
-        // восстанавливаем привязку игрок -> мотоцикл.
-        for (Entity passenger : seat.getPassengers()) {
+        // снимаем его и заново сажаем у себя в tick(): при загрузке чанков
+        // позиции игрока и сиденья могут разойтись, и «слепая» повторная
+        // посадка дала бы рассинхрон (персонаж стоит, мотоцикл едет).
+        for (Entity passenger : new ArrayList<>(seat.getPassengers())) {
             if (passenger instanceof Player player) {
-                playerToBike.put(player.getUniqueId(), id);
+                ejectRider(player);
+                restoreRiderState(player);
+            } else {
+                seat.removePassenger(passenger);
             }
         }
         syncVisual(bike, seat.getLocation().clone());
@@ -278,6 +283,17 @@ public final class MotorcycleManager {
         // Сиденье остаётся на ховер-высоте (иначе его корпус уходит в блоки,
         // проверка коллизий считает это стеной, и мотоцикл не едет).
         // Визуальную модель опускаем к ногам игрока в syncVisual().
+
+        // Игрок должен сесть НА САМОМ сиденье: если он стоит рядом (клик по
+        // ItemDisplay/Interaction с расстояния), addPassenger() прошёл бы,
+        // но клиент показал бы персонажа в стороне, а не на мотоцикле.
+        Location seatLocation = motorcycle.seat().getLocation().clone();
+        seatLocation.setYaw(player.getYaw());
+        seatLocation.setPitch(player.getPitch());
+        player.teleport(seatLocation,
+                TeleportFlag.Relative.X, TeleportFlag.Relative.Y, TeleportFlag.Relative.Z,
+                TeleportFlag.Relative.PITCH, TeleportFlag.Relative.YAW);
+
         boolean mounted = addRiderToSeat(motorcycle, player);
         if (!mounted) {
             send(player, "messages.mount-failed");
@@ -531,10 +547,24 @@ public final class MotorcycleManager {
 
             Player rider = getRider(bike);
             if (rider != null && rider.isOnline() && !rider.isDead()) {
+                // Привязка живёт только пока игрок РЕАЛЬНО сидит в седле.
+                // Если он «слез» — убираем mapping, иначе mount() будет
+                // навсегда отказывать («already-riding») после рассинхрона.
                 playerToBike.put(rider.getUniqueId(), bike.id());
                 drive(bike, rider);
             } else {
-                if (rider != null) {
+                if (rider == null) {
+                    // Пассажир сам покинул седло (клиент отменил посадку).
+                    // Снимаем mapping и флаги: игрок сможет сесть заново,
+                    // а ensureSeated() вернёт его при случайном съезде.
+                    for (UUID playerId : new ArrayList<>(playerToBike.keySet())) {
+                        if (bike.id().equals(playerToBike.get(playerId))) {
+                            playerToBike.remove(playerId);
+                            lastReseatTick.remove(playerId);
+                        }
+                    }
+                    bike.setRiding(false);
+                } else {
                     playerToBike.remove(rider.getUniqueId());
                     ejectRider(rider);
                     restoreRiderState(rider);
@@ -556,11 +586,18 @@ public final class MotorcycleManager {
     /**
      * Лёгкая защита от рассинхрона: если клиент «слез» с невидимого сиденья,
      * но привязка игрок -> мотоцикл ещё жива, возвращаем его в седло.
-     * Игрока мы при этом НЕ телепортируем — Bukkit сам отправит пассажиру
-     * позицию родительской сущности, поэтому камера не дёргается.
      * Повторная посадка выполняется максимум раз в {@value #RESEAT_COOLDOWN_TICKS}
      * тиков на игрока, чтобы при проблемных условиях не было спам-цикла
-     * «посадка-высадка», который и вызывает лаги.
+     * «посадка-высадка», который вызывает лаги.
+     *
+     * ВАЖНО: игрока нужно перенести К САМОМУ СЕДЕНЬЮ до посадки. Пока он
+     * числится пассажиром, сервер синхронизирует его позицию с родителем,
+     * но в момент самой посадки позиция не копируется автоматически. Если
+     * сесть «на расстоянии» (например, после перезаезда через блок или
+     * рестарта сервера), клиент получит рассинхрон: персонаж останется
+     * позади, а мотоцикл поедет один. Поэтому здесь выполняется ОДИН
+     * точечный телепорт к сиденью — только при реальном рассинхроне,
+     * в остальных случаях за тик не происходит ничего.
      */
     private void ensureSeated(Motorcycle bike, Player player) {
         for (Entity passenger : bike.seat().getPassengers()) {
@@ -571,6 +608,13 @@ public final class MotorcycleManager {
         long now = ticksElapsed;
         if (last != null && now - last < RESEAT_COOLDOWN_TICKS) return;
         lastReseatTick.put(player.getUniqueId(), now);
+
+        Location seatLocation = bike.seat().getLocation().clone();
+        seatLocation.setYaw(player.getYaw());
+        seatLocation.setPitch(player.getPitch());
+        player.teleport(seatLocation,
+                TeleportFlag.Relative.X, TeleportFlag.Relative.Y, TeleportFlag.Relative.Z,
+                TeleportFlag.Relative.PITCH, TeleportFlag.Relative.YAW);
 
         addRiderToSeat(bike, player);
     }
