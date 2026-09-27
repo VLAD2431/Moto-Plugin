@@ -13,14 +13,13 @@ import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.ItemDisplay;
 import org.bukkit.entity.Player;
-import org.bukkit.entity.Pose;
 import org.bukkit.event.entity.EntityDismountEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.util.BoundingBox;
-import org.bukkit.util.Vector;
 import org.bukkit.util.Transformation;
+import org.bukkit.util.Vector;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
@@ -39,6 +38,13 @@ import java.util.UUID;
  * и игрок не должен отставать от мотоцикла.
  */
 public final class MotorcycleManager {
+    /**
+     * Игрок-пассажир рендерится на 1.30 блока выше позиции своего транспорта.
+     * Понижаем невидимое сиденье на эту величину, чтобы персонаж сидел прямо
+     * над моделью мотоцикла, а не висел в воздухе.
+     */
+    private static final double SEAT_PASSENGER_OFFSET = 1.30;
+
     private final MotorcyclePlugin plugin;
 
     private final Map<UUID, Motorcycle> motorcycles = new HashMap<>();
@@ -253,6 +259,13 @@ public final class MotorcycleManager {
             return;
         }
 
+        // Сиденье (ArmorStand) ставим ровно на 1.30 блока ниже глаз пассажира —
+        // стандартное смещение игрока-пассажира. Игрок сидит ПРЯМО над моделью,
+        // а не висит в воздухе над ней.
+        Location seatLoc = motorcycle.seat().getLocation().clone();
+        seatLoc.setY(seatLoc.getY() - SEAT_PASSENGER_OFFSET);
+        motorcycle.seat().teleport(seatLoc);
+
         boolean mounted = motorcycle.seat().addPassenger(player);
         if (!mounted) {
             send(player, "messages.mount-failed");
@@ -262,7 +275,6 @@ public final class MotorcycleManager {
         playerToBike.put(player.getUniqueId(), motorcycle.id());
         player.setFallDistance(0);
         player.setSneaking(false);
-        player.setPose(Pose.SITTING, true);
         motorcycle.setSpeed(0);
     }
 
@@ -275,6 +287,7 @@ public final class MotorcycleManager {
         restoreRiderState(player);
         bike.setSpeed(0);
         bike.setJumping(false);
+        raiseSeatAfterRide(bike);
     }
 
     public void removeRider(Player player) {
@@ -288,12 +301,19 @@ public final class MotorcycleManager {
         restoreRiderState(player);
         bike.setSpeed(0);
         bike.setJumping(false);
+        raiseSeatAfterRide(bike);
+    }
+
+    /** Возвращаем пустое сиденье на ховер-высоту после высадки. */
+    private void raiseSeatAfterRide(Motorcycle bike) {
+        Location seatLoc = bike.seat().getLocation().clone();
+        seatLoc.setY(seatLoc.getY() + SEAT_PASSENGER_OFFSET);
+        bike.seat().teleport(seatLoc);
     }
 
     private void restoreRiderState(Player player) {
         player.setGravity(true);
         player.setVelocity(new Vector());
-        player.setPose(Pose.STANDING, true);
         player.setFallDistance(0);
     }
 
@@ -531,7 +551,6 @@ public final class MotorcycleManager {
         }
 
         player.setFallDistance(0);
-        if (player.getPose() != Pose.SITTING) player.setPose(Pose.SITTING, true);
 
         Input input = player.getCurrentInput();
         boolean forward = input != null && input.isForward();
@@ -575,7 +594,8 @@ public final class MotorcycleManager {
         Motorcycle bike = getByPlayer(player);
         if (bike == null) return;
 
-        Location exit = bike.seat().getLocation().clone().add(0, 0.15, 0);
+        Location exit = bike.seat().getLocation().clone()
+                .add(0, SEAT_PASSENGER_OFFSET + 0.15, 0);
         exit.setYaw(player.getYaw());
         exit.setPitch(player.getPitch());
 
@@ -584,6 +604,7 @@ public final class MotorcycleManager {
         restoreRiderState(player);
         player.teleport(exit);
         bike.setSpeed(0);
+        raiseSeatAfterRide(bike);
     }
 
     // ==================== Управление ====================

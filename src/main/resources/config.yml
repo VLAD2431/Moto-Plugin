@@ -84,6 +84,7 @@ messages:
   no-ride: "<red>В этой зоне запрещено ездить на мотоцикле."
   no-ride-deploy: "<red>Здесь нельзя установить мотоцикл."
   already-riding: "<red>Вы уже управляете мотоциклом."
+  mount-failed: "<red>Не удалось сесть на мотоцикл."
   not-motorcycle-item: "<red>В руке нет мотоцикла."
   install-start: "<yellow>Установка началась. Не двигайтесь."
   install-cancel: "<red>Установка отменена."
