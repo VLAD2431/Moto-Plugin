@@ -1,0 +1,103 @@
+motorcycle:
+  item:
+    material: PAPER
+    model: "motorcycle:moto"
+    name: "<white>Мотоцикл"
+    lore:
+      - "<gray>Заряд: <white>{charge}%"
+      - "<gray>Правый клик — установить"
+      - "<gray>Сохраняет заряд при хранении"
+    max-stack-size: 1
+
+  physics:
+    # Максимальная скорость вперёд в км/ч.
+    max-speed-kmh: 90.0
+    # Ускорение в км/ч в секунду.
+    acceleration-kmh-per-second: 22.0
+    # Обычная сила торможения в км/ч в секунду.
+    braking-kmh-per-second: 42.0
+    # Скорость движения назад в км/ч.
+    reverse-speed-kmh: 12.0
+    # Скорость поворота на максимальной скорости, градусов в секунду.
+    steering-degrees-per-second: 95.0
+    # Пассивное сопротивление движению в км/ч в секунду.
+    rolling-resistance-kmh-per-second: 7.0
+    # Минимальная скорость, ниже которой поворот почти не работает.
+    steering-min-kmh: 4.0
+
+    # Высота мотоцикла над поверхностью при установке.
+    hover-height: 0.70
+    # Небольшое вертикальное покачивание при парении.
+    hover-bob-amplitude: 0.035
+    # Частота покачивания в циклах в секунду.
+    hover-bob-frequency: 1.6
+    # Максимальная вертикальная корректировка за тик при движении по перепаду высоты.
+    # Блоки, попадающие в габарит мотоцикла, вообще нельзя устанавливать.
+    hover-rise-per-tick: 0.22
+    hover-drop-per-tick: 0.28
+    # Максимальный визуальный угол наклона в поворотах.
+    max-bank-degrees: 28.0
+    # Визуальный наклон при разгоне/торможении.
+    acceleration-lean-degrees: 6.0
+    braking-lean-degrees: 8.0
+    # Плавность визуального наклона. 1.0 = мгновенно, 0.1 = очень плавно.
+    visual-smoothing: 0.18
+
+  # Габариты невидимого сиденья и зоны запрета установки блоков вокруг мотоцикла.
+  # Эти значения также используются для точной проверки пересечения блока с мотоциклом.
+  collision:
+    width: 1.20
+    height: 1.20
+    # Небольшой дополнительный запас вокруг хитбокса.
+    extra-radius: 0.10
+
+  visual:
+    # Вертикальное смещение модели относительно сиденья.
+    height-offset: 0.0
+    # Масштаб отображения модели предмета.
+    scale: 1.0
+
+  battery:
+    capacity: 100
+    consumption-at-max-speed-percent-per-minute: 0.65
+    charge-per-second: 3.0
+
+  storage:
+    # Уборка/установка мотоцикла выполняется через ПКМ.
+    # Во время езды используйте ПКМ пустой рукой, чтобы начать уборку.
+    duration-seconds: 30
+    cancel-on-damage: true
+    cancel-on-dismount: true
+
+  actionbar:
+    driving: "<white>Заряд: <green>{charge}% <dark_gray>│ <white>Скорость: <yellow>{speed} км/ч"
+    storage: "<white>Уборка мотоцикла: <yellow>{seconds} сек."
+    installing: "<white>Установка мотоцикла: <yellow>{seconds} сек."
+    charging: "<white>Зарядка: <green>{charge}% <dark_gray>│ <gray>Зона зарядки"
+
+messages:
+  prefix: "<dark_gray>[<white>Мото<dark_gray>] <reset>"
+  no-permission: "<red>Недостаточно прав."
+  only-player: "<red>Команду может выполнить только игрок."
+  motorcycle-given: "<green>Мотоцикл выдан. Заряд: <white>{charge}%"
+  motorcycle-not-found: "<red>Мотоцикл не найден."
+  no-ride: "<red>В этой зоне запрещено ездить на мотоцикле."
+  no-ride-deploy: "<red>Здесь нельзя установить мотоцикл."
+  already-riding: "<red>Вы уже управляете мотоциклом."
+  not-motorcycle-item: "<red>В руке нет мотоцикла."
+  install-start: "<yellow>Установка началась. Не двигайтесь."
+  install-cancel: "<red>Установка отменена."
+  storage-start: "<yellow>Уборка началась. Не слезайте с мотоцикла."
+  storage-cancel: "<red>Уборка отменена."
+  storage-complete: "<green>Мотоцикл убран в инвентарь."
+  install-complete: "<green>Мотоцикл установлен."
+  battery-empty: "<red>Аккумулятор разряжен. Найдите зону зарядки."
+  charge-start: "<green>Мотоцикл заряжается."
+  zone-created: "<green>Зона <white>{name} <green>создана: <white>{type}"
+  zone-deleted: "<green>Зона <white>{name} <green>удалена."
+  zone-not-found: "<red>Такой зоны нет."
+  pos1-set: "<green>Точка 1 установлена: <white>{x} {y} {z}"
+  pos2-set: "<green>Точка 2 установлена: <white>{x} {y} {z}"
+  missing-pos: "<red>Сначала поставьте pos1 и pos2."
+  zones-list: "<gray>Зоны: <white>{zones}"
+  usage: "<yellow>/moto give <игрок> [количество]\n<yellow>/moto pos1\n<yellow>/moto pos2\n<yellow>/moto zone create <no_ride|charge> <имя>\n<yellow>/moto zone delete <имя>\n<yellow>/moto zone list"

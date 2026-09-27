@@ -1,0 +1,16 @@
+name: MotorcyclePlugin
+version: 1.1.1
+main: VLADMIX90.motorcyclePlugin.MotorcyclePlugin
+api-version: '1.21'
+author: VLADMIX
+description: Realistic-ish electric motorcycle for Paper.
+commands:
+  moto:
+    description: Motorcycle management commands.
+    usage: /moto <give|pos1|pos2|zone>
+    aliases: [motorcycle]
+permissions:
+  motorcycle.admin:
+    default: op
+  motorcycle.give:
+    default: op
