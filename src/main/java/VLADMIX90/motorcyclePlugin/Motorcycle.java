@@ -13,6 +13,8 @@ public final class Motorcycle {
     private double speed;
     private int battery;
     private boolean storageInProgress;
+    /** true, пока игрок сидит на мотоцикле (визуальная модель опускается к ногам). */
+    private boolean riding;
 
     /** Направление корпуса/руля мотоцикла. Не зависит от камеры игрока. */
     private float headingYaw;
@@ -48,6 +50,9 @@ public final class Motorcycle {
 
     public boolean storageInProgress() { return storageInProgress; }
     public void setStorageInProgress(boolean value) { this.storageInProgress = value; }
+
+    public boolean riding() { return riding; }
+    public void setRiding(boolean value) { this.riding = value; }
 
     public float headingYaw() { return headingYaw; }
     public void setHeadingYaw(float headingYaw) { this.headingYaw = headingYaw; }

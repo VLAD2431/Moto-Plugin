@@ -39,11 +39,13 @@ import java.util.UUID;
  */
 public final class MotorcycleManager {
     /**
-     * Игрок-пассажир рендерится на 1.30 блока выше позиции своего транспорта.
-     * Понижаем невидимое сиденье на эту величину, чтобы персонаж сидел прямо
-     * над моделью мотоцикла, а не висел в воздухе.
+     * Игрок-пассажир рендерится на 1.30 блока выше позиции своего транспорта
+     * (это делает сам сервер). Сиденье-ArmorStand НЕЛЬЗЯ опускать в землю —
+     * иначе корпус попадает в блоки, и мотоцикл не может ехать.
+     * Вместо этого мы опускаем ВИЗУАЛЬНУЮ модель (ItemDisplay) к ногам игрока,
+     * чтобы персонаж сидел прямо над моделью, а не висел в воздухе.
      */
-    private static final double SEAT_PASSENGER_OFFSET = 1.30;
+    private static final double PASSENGER_RENDER_OFFSET = 1.30;
 
     private final MotorcyclePlugin plugin;
 
@@ -114,6 +116,13 @@ public final class MotorcycleManager {
 
         Motorcycle bike = new Motorcycle(id, seat, visual, Math.min(capacity, Math.max(0, battery)), heading);
         motorcycles.put(id, bike);
+        // Если сиденье пережило рестарт/выгрузку с пассажиром на борту —
+        // восстанавливаем привязку игрок -> мотоцикл.
+        for (Entity passenger : seat.getPassengers()) {
+            if (passenger instanceof Player player) {
+                playerToBike.put(player.getUniqueId(), id);
+            }
+        }
         syncVisual(bike, seat.getLocation().clone());
     }
 
@@ -259,13 +268,9 @@ public final class MotorcycleManager {
             return;
         }
 
-        // Сиденье (ArmorStand) ставим ровно на 1.30 блока ниже глаз пассажира —
-        // стандартное смещение игрока-пассажира. Игрок сидит ПРЯМО над моделью,
-        // а не висит в воздухе над ней.
-        Location seatLoc = motorcycle.seat().getLocation().clone();
-        seatLoc.setY(seatLoc.getY() - SEAT_PASSENGER_OFFSET);
-        motorcycle.seat().teleport(seatLoc);
-
+        // Сиденье остаётся на ховер-высоте (иначе его корпус уходит в блоки,
+        // проверка коллизий считает это стеной, и мотоцикл не едет).
+        // Визуальную модель опускаем к ногам игрока в syncVisual().
         boolean mounted = motorcycle.seat().addPassenger(player);
         if (!mounted) {
             send(player, "messages.mount-failed");
@@ -273,8 +278,8 @@ public final class MotorcycleManager {
         }
 
         playerToBike.put(player.getUniqueId(), motorcycle.id());
+        motorcycle.setRiding(true);
         player.setFallDistance(0);
-        player.setSneaking(false);
         motorcycle.setSpeed(0);
     }
 
@@ -287,7 +292,7 @@ public final class MotorcycleManager {
         restoreRiderState(player);
         bike.setSpeed(0);
         bike.setJumping(false);
-        raiseSeatAfterRide(bike);
+        bike.setRiding(false);
     }
 
     public void removeRider(Player player) {
@@ -301,14 +306,7 @@ public final class MotorcycleManager {
         restoreRiderState(player);
         bike.setSpeed(0);
         bike.setJumping(false);
-        raiseSeatAfterRide(bike);
-    }
-
-    /** Возвращаем пустое сиденье на ховер-высоту после высадки. */
-    private void raiseSeatAfterRide(Motorcycle bike) {
-        Location seatLoc = bike.seat().getLocation().clone();
-        seatLoc.setY(seatLoc.getY() + SEAT_PASSENGER_OFFSET);
-        bike.seat().teleport(seatLoc);
+        bike.setRiding(false);
     }
 
     private void restoreRiderState(Player player) {
@@ -594,8 +592,8 @@ public final class MotorcycleManager {
         Motorcycle bike = getByPlayer(player);
         if (bike == null) return;
 
-        Location exit = bike.seat().getLocation().clone()
-                .add(0, SEAT_PASSENGER_OFFSET + 0.15, 0);
+        // Выход: рядом с сиденьем, на уровне ног игрока (сиденье + 0.2).
+        Location exit = bike.seat().getLocation().clone().add(0, 0.2, 0);
         exit.setYaw(player.getYaw());
         exit.setPitch(player.getPitch());
 
@@ -604,7 +602,7 @@ public final class MotorcycleManager {
         restoreRiderState(player);
         player.teleport(exit);
         bike.setSpeed(0);
-        raiseSeatAfterRide(bike);
+        bike.setRiding(false);
     }
 
     // ==================== Управление ====================
@@ -671,6 +669,22 @@ public final class MotorcycleManager {
         }
 
         int steps = Math.max(1, (int) Math.ceil(horizontalLength / 0.10));
+
+        // Самовосстановление: если корпус почему-то оказался внутри блоков
+        // (например, сиденье утонуло после обновления плагина) — мотоцикл не
+        // смог бы сдвинуться никогда. Поднимаем его на ховер-высоту.
+        if (!vehicleVolumeClear(bike, current)) {
+            double ground = footprintGroundY(current, new Vector());
+            if (!Double.isNaN(ground)) {
+                Location fixed = current.clone();
+                fixed.setY(hoverCenterY(ground, bike.hoverPhase()));
+                if (vehicleVolumeClear(bike, fixed)) {
+                    bike.seat().teleport(fixed);
+                    current = fixed;
+                }
+            }
+        }
+
         Vector horizontal = desiredVelocity.clone().setY(0).multiply(1.0 / steps);
         Location probe = current.clone();
         double finalY = current.getY();
@@ -951,8 +965,20 @@ public final class MotorcycleManager {
     }
 
     private void syncVisual(Motorcycle bike, Location location) {
-        Location visualLocation = location.clone().add(0,
-                plugin.getConfig().getDouble("motorcycle.visual.height-offset", 0.0), 0);
+        double visualY = location.getY()
+                + plugin.getConfig().getDouble("motorcycle.visual.height-offset", 0.0);
+
+        // Пока игрок сидит, опускаем модель к ногам пассажира: сервер рендерит
+        // игрока на 1.30 блока выше позиции сиденья, поэтому без этого смещения
+        // персонаж выглядит висящим в воздухе над моделью.
+        if (bike.riding()) {
+            double seatToFeet = plugin.getConfig()
+                    .getDouble("motorcycle.visual.seat-to-feet-offset", PASSENGER_RENDER_OFFSET - 0.45);
+            visualY -= Math.max(0.0, seatToFeet);
+        }
+
+        Location visualLocation = location.clone();
+        visualLocation.setY(visualY);
         float scale = (float) plugin.getConfig().getDouble("motorcycle.visual.scale", 1.0);
 
         bike.visual().teleport(visualLocation);
